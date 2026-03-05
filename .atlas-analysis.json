@@ -1,0 +1,57 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "go-homedir",
+  "projectDescription": "Go library for detecting and expanding the user's home directory without cgo",
+  "theme": "palm",
+  "primaryColor": "#242b2c",
+  "lightColor": null,
+  "darkColor": null,
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get Started",
+        "pages": [
+          "introduction",
+          "installation",
+          "quickstart"
+        ]
+      },
+      {
+        "group": "API Reference",
+        "pages": [
+          "api/dir",
+          "api/expand",
+          "api/reset",
+          "api/configuration"
+        ]
+      },
+      {
+        "group": "Guides",
+        "pages": [
+          "guides/platform-behavior",
+          "guides/caching",
+          "guides/error-handling"
+        ]
+      },
+      {
+        "group": "Examples",
+        "pages": [
+          "examples/basic-usage",
+          "examples/advanced-usage"
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Cross-platform home directory detection (Windows, Unix, macOS, Plan 9)",
+    "No cgo dependency for cross-compilation support",
+    "Built-in caching for performance optimization",
+    "Simple path expansion with tilde (~) support"
+  ],
+  "publicApiSurface": [
+    "Dir() - Returns the home directory for the executing user",
+    "Expand(path) - Expands ~ in a path to the home directory",
+    "Reset() - Clears the home directory cache",
+    "DisableCache - Variable to disable caching globally"
+  ]
+}
