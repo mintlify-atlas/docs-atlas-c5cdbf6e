@@ -1,97 +1,114 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: go-homedir
+description: Go library for detecting and expanding the user's home directory without cgo
 ---
 
-## Setting up
+<div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+  <div className="mb-8">
+    <img src="/logo.svg" alt="go-homedir" className="h-24 w-24 mx-auto mb-6" />
+    <h1 className="text-5xl font-bold mb-4" style={{ color: '#24292f' }}>go-homedir</h1>
+    <p className="text-xl mb-8" style={{ color: '#57606a' }}>
+      Cross-platform home directory detection for Go without cgo
+    </p>
+  </div>
 
-Get your documentation site up and running in minutes.
+  <div className="flex gap-4 mb-12">
+    <a 
+      href="/quickstart" 
+      className="px-6 py-3 rounded-md font-semibold"
+      style={{ backgroundColor: '#238636', color: '#ffffff' }}
+    >
+      Get Started
+    </a>
+    <a 
+      href="https://github.com/mitchellh/go-homedir" 
+      className="px-6 py-3 rounded-md font-semibold border"
+      style={{ backgroundColor: 'transparent', color: '#24292f', borderColor: '#d0d7de' }}
+    >
+      View on GitHub
+    </a>
+  </div>
+</div>
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+## Why go-homedir?
 
-## Make it yours
+The built-in `os/user` package requires cgo on Darwin systems, which prevents cross-compilation. For the 99% of use cases where you just need the home directory, go-homedir provides a pure Go solution that works everywhere.
 
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Cross-Platform" icon="globe">
+    Works seamlessly on Windows, macOS, Linux, and Plan 9
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="No cgo Required" icon="code">
+    Pure Go implementation enables cross-compilation
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Built-in Caching" icon="bolt">
+    Optimized performance with automatic result caching
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Simple API" icon="sparkles">
+    Just two main functions: Dir() and Expand()
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Quick Example
 
-Everything you need to create world-class documentation.
+```go
+package main
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+import (
+    "fmt"
+    "github.com/mitchellh/go-homedir"
+)
 
-## Need inspiration?
+func main() {
+    // Get the home directory
+    home, err := homedir.Dir()
+    if err != nil {
+        panic(err)
+    }
+    fmt.Println("Home directory:", home)
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+    // Expand ~ in paths
+    path, err := homedir.Expand("~/.config/myapp")
+    if err != nil {
+        panic(err)
+    }
+    fmt.Println("Expanded path:", path)
+}
+```
+
+## Key Features
+
+<AccordionGroup>
+  <Accordion title="Cross-platform home directory detection">
+    Automatically detects the home directory on Windows (using USERPROFILE, HOMEDRIVE/HOMEPATH), Unix-like systems (using HOME environment variable and getent), macOS (using dscl), and Plan 9.
+  </Accordion>
+  
+  <Accordion title="No cgo dependency">
+    Unlike os/user, go-homedir doesn't require cgo, making it perfect for cross-compilation scenarios where cgo would be problematic.
+  </Accordion>
+  
+  <Accordion title="Performance optimization with caching">
+    Results are cached automatically to avoid repeated system calls. You can disable caching globally with the DisableCache variable or clear the cache with Reset().
+  </Accordion>
+  
+  <Accordion title="Tilde expansion">
+    The Expand() function makes it easy to convert paths like ~/Documents to absolute paths by replacing the tilde with the actual home directory.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Add go-homedir to your Go project
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get up and running in minutes
+  </Card>
+  <Card title="API Reference" icon="book" href="/api/dir">
+    Explore the complete API documentation
+  </Card>
+  <Card title="Examples" icon="code" href="/examples/basic-usage">
+    See real-world usage examples
+  </Card>
+</CardGroup>

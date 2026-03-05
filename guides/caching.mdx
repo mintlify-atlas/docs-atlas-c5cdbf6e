@@ -1,0 +1,247 @@
+---
+title: Caching
+description: Understanding how go-homedir caches the home directory for performance
+---
+
+The `go-homedir` library caches the detected home directory to avoid repeated system calls and command executions. This guide explains how caching works and when to use it.
+
+## Why Caching?
+
+Detecting the home directory can be expensive because it may involve:
+- Reading environment variables
+- Executing shell commands (`getent`, `dscl`, `sh`)
+- Parsing command output
+
+Caching ensures that after the first detection, subsequent calls to `Dir()` return instantly without re-executing these operations.
+
+## How Caching Works
+
+The library uses two package-level variables for caching:
+
+```go homedir.go:19-20
+var homedirCache string
+var cacheLock sync.RWMutex
+```
+
+- `homedirCache` - Stores the detected home directory path
+- `cacheLock` - A read-write mutex for thread-safe access
+
+### Cache Check Flow
+
+When you call `Dir()`, it follows this flow:
+
+```go homedir.go:26-34
+if !DisableCache {
+    cacheLock.RLock()
+    cached := homedirCache
+    cacheLock.RUnlock()
+    if cached != "" {
+        return cached, nil
+    }
+}
+```
+
+1. **Check if caching is enabled** - If `DisableCache` is `true`, skip the cache entirely
+2. **Acquire read lock** - Multiple goroutines can read simultaneously
+3. **Read cached value** - Check if a value exists in the cache
+4. **Return immediately** - If cached, return without any system calls
+
+### Cache Population
+
+If the cache is empty or disabled, the library detects the home directory and populates the cache:
+
+```go homedir.go:36-52
+cacheLock.Lock()
+defer cacheLock.Unlock()
+
+var result string
+var err error
+if runtime.GOOS == "windows" {
+    result, err = dirWindows()
+} else {
+    // Unix-like system, so just assume Unix
+    result, err = dirUnix()
+}
+
+if err != nil {
+    return "", err
+}
+homedirCache = result
+return result, nil
+```
+
+1. **Acquire write lock** - Ensures thread-safe cache updates
+2. **Detect home directory** - Calls platform-specific detection
+3. **Store in cache** - Only if detection succeeds
+4. **Return result** - The detected path or error
+
+<Note>
+  The cache is only populated on successful detection. If an error occurs, the cache remains empty, and the next call will retry detection.
+</Note>
+
+## Performance Impact
+
+Caching provides significant performance improvements. Based on the benchmark in the test suite:
+
+```go homedir_test.go:25-35
+func BenchmarkDir(b *testing.B) {
+    // We do this for any "warmups"
+    for i := 0; i < 10; i++ {
+        Dir()
+    }
+
+    b.ResetTimer()
+    for i := 0; i < b.N; i++ {
+        Dir()
+    }
+}
+```
+
+The benchmark includes warmup calls to ensure the cache is populated before measuring performance. With caching:
+- **First call**: Full detection (may execute shell commands)
+- **Subsequent calls**: Instant return from cache (nanoseconds)
+
+<Tip>
+  For applications that frequently need the home directory, caching can improve performance by orders of magnitude.
+</Tip>
+
+## Disabling the Cache
+
+You can disable caching globally using the `DisableCache` variable:
+
+```go
+import "github.com/mitchellh/go-homedir"
+
+func main() {
+    // Disable caching globally
+    homedir.DisableCache = true
+    
+    // This will always re-detect the home directory
+    dir, err := homedir.Dir()
+    if err != nil {
+        panic(err)
+    }
+    
+    fmt.Println(dir)
+}
+```
+
+### When to Disable Caching
+
+Disable caching when:
+- **Environment changes dynamically** - If your application modifies `HOME` or other environment variables
+- **Testing** - To ensure each test gets fresh detection
+- **Long-running processes** - If you expect the home directory to change during execution
+- **Security-sensitive contexts** - To always get the current system state
+
+<Warning>
+  Disabling the cache means every call to `Dir()` or `Expand()` will re-execute system commands, which can be expensive. Only disable when necessary.
+</Warning>
+
+## Clearing the Cache
+
+You can clear the cache without disabling it using the `Reset()` function:
+
+```go homedir.go:83-87
+func Reset() {
+    cacheLock.Lock()
+    defer cacheLock.Unlock()
+    homedirCache = ""
+}
+```
+
+### Example Usage
+
+```go
+import "github.com/mitchellh/go-homedir"
+import "os"
+
+func main() {
+    // First call - detects and caches
+    dir1, _ := homedir.Dir()
+    fmt.Println(dir1) // e.g., /home/user
+    
+    // Change the environment
+    os.Setenv("HOME", "/tmp/newhome")
+    
+    // Still returns cached value
+    dir2, _ := homedir.Dir()
+    fmt.Println(dir2) // Still /home/user
+    
+    // Clear the cache
+    homedir.Reset()
+    
+    // Now re-detects with new environment
+    dir3, _ := homedir.Dir()
+    fmt.Println(dir3) // /tmp/newhome
+}
+```
+
+### When to Use Reset
+
+- **After environment changes** - When you modify `HOME`, `USERPROFILE`, etc.
+- **In test suites** - Between tests that modify environment variables
+- **Dynamic configuration** - When switching between user contexts
+
+<Tip>
+  Use `Reset()` instead of `DisableCache` when you need to refresh the cache occasionally but still want caching benefits between refreshes.
+</Tip>
+
+## Thread Safety
+
+The caching mechanism is fully thread-safe:
+- **Read operations** use `RLock()` - Multiple goroutines can read simultaneously
+- **Write operations** use `Lock()` - Exclusive access for cache updates
+- **Reset operations** use `Lock()` - Exclusive access for cache clearing
+
+```go
+import "github.com/mitchellh/go-homedir"
+import "sync"
+
+func main() {
+    var wg sync.WaitGroup
+    
+    // Safe to call from multiple goroutines
+    for i := 0; i < 100; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            dir, err := homedir.Dir()
+            if err != nil {
+                panic(err)
+            }
+            fmt.Println(dir)
+        }()
+    }
+    
+    wg.Wait()
+}
+```
+
+<Note>
+  The first call from multiple goroutines may result in multiple goroutines entering the detection phase, but the write lock ensures only one updates the cache. This is safe and doesn't cause issues.
+</Note>
+
+## Best Practices
+
+1. **Keep caching enabled** - Unless you have a specific reason to disable it
+2. **Call Reset() after environment changes** - When modifying environment variables
+3. **Disable in tests** - To ensure predictable behavior with test fixtures
+4. **Don't worry about thread safety** - The library handles it for you
+
+```go
+// Good practice in tests
+func TestSomething(t *testing.T) {
+    // Disable cache for this test
+    homedir.DisableCache = true
+    defer func() { homedir.DisableCache = false }()
+    
+    // Modify environment
+    os.Setenv("HOME", "/tmp/test")
+    defer os.Setenv("HOME", os.Getenv("HOME"))
+    
+    // Now Dir() will always read the current environment
+    dir, err := homedir.Dir()
+    // ...
+}
+```

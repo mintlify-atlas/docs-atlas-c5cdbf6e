@@ -1,0 +1,515 @@
+---
+title: 'Advanced Usage'
+description: 'Complex scenarios and advanced patterns for go-homedir'
+---
+
+## Disabling the Cache
+
+By default, `go-homedir` caches the home directory after the first lookup for performance. You can disable this:
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    "os"
+    
+    "github.com/mitchellh/go-homedir"
+)
+
+func main() {
+    // Disable caching globally
+    homedir.DisableCache = true
+    
+    // Now each call to Dir() will re-detect the home directory
+    dir1, err := homedir.Dir()
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println("First call:", dir1)
+    
+    // Simulate environment change
+    os.Setenv("HOME", "/tmp/newhome")
+    
+    // This will detect the new home directory
+    dir2, err := homedir.Dir()
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println("Second call:", dir2)
+    
+    // Output:
+    // First call: /home/username
+    // Second call: /tmp/newhome
+}
+```
+
+<Warning>
+  Disabling the cache means every call to `Dir()` or `Expand()` will re-detect the home directory, which may involve executing shell commands. Only disable caching if you need to detect changes to the home directory during runtime.
+</Warning>
+
+## Using Reset() in Tests
+
+The `Reset()` function is particularly useful in testing scenarios:
+
+```go
+package main
+
+import (
+    "os"
+    "testing"
+    
+    "github.com/mitchellh/go-homedir"
+)
+
+// patchEnv temporarily sets an environment variable and returns
+// a function to restore the original value
+func patchEnv(key, value string) func() {
+    bck := os.Getenv(key)
+    deferFunc := func() {
+        os.Setenv(key, bck)
+    }
+    
+    if value != "" {
+        os.Setenv(key, value)
+    } else {
+        os.Unsetenv(key)
+    }
+    
+    return deferFunc
+}
+
+func TestWithCustomHome(t *testing.T) {
+    // Disable cache for testing
+    homedir.DisableCache = true
+    defer func() { homedir.DisableCache = false }()
+    
+    // Set custom HOME and restore it after test
+    defer patchEnv("HOME", "/custom/home")()
+    
+    // Clear any cached values
+    homedir.Reset()
+    
+    // Now Dir() will use /custom/home
+    dir, err := homedir.Dir()
+    if err != nil {
+        t.Fatal(err)
+    }
+    
+    if dir != "/custom/home" {
+        t.Errorf("Expected /custom/home, got %s", dir)
+    }
+}
+
+func TestExpandWithCustomHome(t *testing.T) {
+    // Disable cache to ensure fresh lookups
+    homedir.DisableCache = true
+    defer func() { homedir.DisableCache = false }()
+    
+    // Set custom HOME environment
+    defer patchEnv("HOME", "/custom/path")()
+    
+    // Reset cache to pick up new environment
+    homedir.Reset()
+    
+    // Test expansion
+    actual, err := homedir.Expand("~/foo/bar")
+    if err != nil {
+        t.Fatal(err)
+    }
+    
+    expected := "/custom/path/foo/bar"
+    if actual != expected {
+        t.Errorf("Expected %s, got %s", expected, actual)
+    }
+}
+```
+
+## Platform-Specific Considerations
+
+Handle platform differences gracefully:
+
+<CodeGroup>
+
+```go Unix/Linux/macOS
+package main
+
+import (
+    "fmt"
+    "log"
+    "runtime"
+    
+    "github.com/mitchellh/go-homedir"
+)
+
+func main() {
+    dir, err := homedir.Dir()
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // On Unix-like systems, check for common directories
+    if runtime.GOOS != "windows" {
+        fmt.Println("Unix-like system detected")
+        fmt.Println("Home:", dir)
+        // Typical output: /home/username or /Users/username
+        
+        // Common Unix paths
+        configPath, _ := homedir.Expand("~/.config")
+        fmt.Println("Config:", configPath)
+    }
+}
+```
+
+```go Windows
+package main
+
+import (
+    "fmt"
+    "log"
+    "runtime"
+    
+    "github.com/mitchellh/go-homedir"
+)
+
+func main() {
+    dir, err := homedir.Dir()
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // On Windows
+    if runtime.GOOS == "windows" {
+        fmt.Println("Windows system detected")
+        fmt.Println("Home:", dir)
+        // Typical output: C:\Users\username
+        
+        // Windows uses backslash separators
+        configPath, _ := homedir.Expand("~\\AppData\\Local\\myapp")
+        fmt.Println("Config:", configPath)
+    }
+}
+```
+
+</CodeGroup>
+
+## Combining with filepath Operations
+
+Combine `go-homedir` with Go's `filepath` package for robust path handling:
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    "os"
+    "path/filepath"
+    
+    "github.com/mitchellh/go-homedir"
+)
+
+func main() {
+    // Expand base path
+    basePath, err := homedir.Expand("~/.myapp")
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Use filepath.Join for cross-platform path construction
+    configFile := filepath.Join(basePath, "config", "settings.yaml")
+    dataDir := filepath.Join(basePath, "data")
+    logFile := filepath.Join(basePath, "logs", "app.log")
+    
+    // Create all necessary directories
+    dirs := []string{
+        filepath.Dir(configFile),
+        dataDir,
+        filepath.Dir(logFile),
+    }
+    
+    for _, dir := range dirs {
+        if err := os.MkdirAll(dir, 0755); err != nil {
+            log.Fatal(err)
+        }
+    }
+    
+    fmt.Println("Application structure created:")
+    fmt.Println("  Config:", configFile)
+    fmt.Println("  Data:", dataDir)
+    fmt.Println("  Logs:", logFile)
+    
+    // Walk the directory tree
+    filepath.Walk(basePath, func(path string, info os.FileInfo, err error) error {
+        if err != nil {
+            return err
+        }
+        rel, _ := filepath.Rel(basePath, path)
+        if info.IsDir() {
+            fmt.Printf("  [DIR]  %s\n", rel)
+        }
+        return nil
+    })
+}
+```
+
+## Advanced Error Handling Patterns
+
+Implement robust error handling for production code:
+
+```go
+package main
+
+import (
+    "errors"
+    "fmt"
+    "log"
+    "os"
+    
+    "github.com/mitchellh/go-homedir"
+)
+
+// GetConfigPath returns the path to a config file with proper error handling
+func GetConfigPath(filename string) (string, error) {
+    if filename == "" {
+        return "", errors.New("filename cannot be empty")
+    }
+    
+    // Try to expand home directory
+    path := fmt.Sprintf("~/.config/myapp/%s", filename)
+    expanded, err := homedir.Expand(path)
+    if err != nil {
+        return "", fmt.Errorf("failed to expand home directory: %w", err)
+    }
+    
+    // Verify parent directory exists or create it
+    dir := filepath.Dir(expanded)
+    if err := os.MkdirAll(dir, 0755); err != nil {
+        return "", fmt.Errorf("failed to create config directory: %w", err)
+    }
+    
+    return expanded, nil
+}
+
+// LoadConfig loads a config file with fallback to system location
+func LoadConfig(filename string) ([]byte, error) {
+    // Try user home directory first
+    userPath, err := GetConfigPath(filename)
+    if err == nil {
+        if data, err := os.ReadFile(userPath); err == nil {
+            return data, nil
+        }
+    }
+    
+    // Fallback to system-wide config
+    systemPath := filepath.Join("/etc/myapp", filename)
+    data, err := os.ReadFile(systemPath)
+    if err != nil {
+        return nil, fmt.Errorf("config not found in user or system location: %w", err)
+    }
+    
+    return data, nil
+}
+
+func main() {
+    config, err := LoadConfig("settings.yaml")
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    fmt.Printf("Loaded %d bytes of configuration\n", len(config))
+}
+```
+
+## Concurrent Usage
+
+The library is safe for concurrent use across goroutines:
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    "sync"
+    
+    "github.com/mitchellh/go-homedir"
+)
+
+func main() {
+    var wg sync.WaitGroup
+    results := make(chan string, 10)
+    
+    // Launch multiple goroutines
+    for i := 0; i < 10; i++ {
+        wg.Add(1)
+        go func(id int) {
+            defer wg.Done()
+            
+            // Safe to call concurrently
+            dir, err := homedir.Dir()
+            if err != nil {
+                log.Printf("Goroutine %d error: %v", id, err)
+                return
+            }
+            
+            results <- fmt.Sprintf("Goroutine %d: %s", id, dir)
+        }(i)
+    }
+    
+    // Close results channel when all goroutines finish
+    go func() {
+        wg.Wait()
+        close(results)
+    }()
+    
+    // Collect results
+    for result := range results {
+        fmt.Println(result)
+    }
+}
+```
+
+<Info>
+  The library uses `sync.RWMutex` internally to ensure thread-safe cache access. The first call may be slightly slower as it detects the home directory, but subsequent calls are fast due to caching.
+</Info>
+
+## Performance Considerations
+
+Understand the performance characteristics:
+
+```go
+package main
+
+import (
+    "fmt"
+    "testing"
+    "time"
+    
+    "github.com/mitchellh/go-homedir"
+)
+
+func BenchmarkWithCache(b *testing.B) {
+    // Warmup the cache
+    for i := 0; i < 10; i++ {
+        homedir.Dir()
+    }
+    
+    b.ResetTimer()
+    for i := 0; i < b.N; i++ {
+        homedir.Dir()
+    }
+}
+
+func BenchmarkWithoutCache(b *testing.B) {
+    homedir.DisableCache = true
+    defer func() { homedir.DisableCache = false }()
+    
+    b.ResetTimer()
+    for i := 0; i < b.N; i++ {
+        homedir.Dir()
+    }
+}
+
+func main() {
+    // Demonstrate cache performance
+    
+    // First call (uncached)
+    start := time.Now()
+    homedir.Dir()
+    firstCall := time.Since(start)
+    
+    // Second call (cached)
+    start = time.Now()
+    homedir.Dir()
+    secondCall := time.Since(start)
+    
+    fmt.Printf("First call (uncached): %v\n", firstCall)
+    fmt.Printf("Second call (cached): %v\n", secondCall)
+    fmt.Printf("Speedup: %.2fx\n", float64(firstCall)/float64(secondCall))
+    
+    // Typical output:
+    // First call (uncached): 245.7µs
+    // Second call (cached): 1.2µs
+    // Speedup: 204.75x
+}
+```
+
+## Test Helper for Environment Patching
+
+Reuse the `patchEnv` pattern from the library's tests:
+
+```go
+package myapp
+
+import (
+    "os"
+    "testing"
+    
+    "github.com/mitchellh/go-homedir"
+)
+
+// patchEnv temporarily changes an environment variable for testing.
+// Returns a cleanup function that restores the original value.
+func patchEnv(key, value string) func() {
+    bck := os.Getenv(key)
+    deferFunc := func() {
+        os.Setenv(key, bck)
+    }
+    
+    if value != "" {
+        os.Setenv(key, value)
+    } else {
+        os.Unsetenv(key)
+    }
+    
+    return deferFunc
+}
+
+func TestMultipleEnvironments(t *testing.T) {
+    tests := []struct {
+        name     string
+        homeDir  string
+        input    string
+        expected string
+    }{
+        {
+            name:     "standard home",
+            homeDir:  "/home/user",
+            input:    "~/config",
+            expected: "/home/user/config",
+        },
+        {
+            name:     "custom home",
+            homeDir:  "/custom/path",
+            input:    "~/.app",
+            expected: "/custom/path/.app",
+        },
+    }
+    
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            // Setup
+            homedir.DisableCache = true
+            defer func() { homedir.DisableCache = false }()
+            defer patchEnv("HOME", tt.homeDir)()
+            homedir.Reset()
+            
+            // Test
+            actual, err := homedir.Expand(tt.input)
+            if err != nil {
+                t.Fatal(err)
+            }
+            
+            if actual != tt.expected {
+                t.Errorf("Expected %s, got %s", tt.expected, actual)
+            }
+        })
+    }
+}
+```
+
+<Tip>
+  Always call `homedir.Reset()` after modifying environment variables in tests when `DisableCache` is `false`. This ensures the cache is cleared and the new environment is detected.
+</Tip>

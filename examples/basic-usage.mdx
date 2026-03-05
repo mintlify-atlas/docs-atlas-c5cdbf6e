@@ -1,0 +1,316 @@
+---
+title: 'Basic Usage'
+description: 'Common use cases and simple examples for go-homedir'
+---
+
+## Getting the Home Directory
+
+The most basic operation is getting the user's home directory:
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    
+    "github.com/mitchellh/go-homedir"
+)
+
+func main() {
+    // Get the home directory
+    dir, err := homedir.Dir()
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    fmt.Println("Home directory:", dir)
+    // Output: Home directory: /home/username
+}
+```
+
+## Expanding Paths with Tilde
+
+Expand paths that start with `~` to their full absolute paths:
+
+<CodeGroup>
+
+```go Basic Expansion
+package main
+
+import (
+    "fmt"
+    "log"
+    
+    "github.com/mitchellh/go-homedir"
+)
+
+func main() {
+    // Expand a path with ~
+    path, err := homedir.Expand("~/Documents/config.json")
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    fmt.Println("Expanded path:", path)
+    // Output: Expanded path: /home/username/Documents/config.json
+}
+```
+
+```go Just Tilde
+package main
+
+import (
+    "fmt"
+    "log"
+    
+    "github.com/mitchellh/go-homedir"
+)
+
+func main() {
+    // Expand just ~ to get home directory
+    path, err := homedir.Expand("~")
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    fmt.Println("Home:", path)
+    // Output: Home: /home/username
+}
+```
+
+```go Non-tilde Paths
+package main
+
+import (
+    "fmt"
+    "log"
+    
+    "github.com/mitchellh/go-homedir"
+)
+
+func main() {
+    // Paths without ~ are returned as-is
+    path, err := homedir.Expand("/etc/config")
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    fmt.Println("Path:", path)
+    // Output: Path: /etc/config
+}
+```
+
+</CodeGroup>
+
+## Creating Config File Paths
+
+A common use case is creating paths to configuration files:
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    "os"
+    "path/filepath"
+    
+    "github.com/mitchellh/go-homedir"
+)
+
+func main() {
+    // Get config directory path
+    configPath, err := homedir.Expand("~/.myapp/config.yaml")
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Create the directory if it doesn't exist
+    configDir := filepath.Dir(configPath)
+    if err := os.MkdirAll(configDir, 0755); err != nil {
+        log.Fatal(err)
+    }
+    
+    fmt.Println("Config will be saved to:", configPath)
+    // Output: Config will be saved to: /home/username/.myapp/config.yaml
+    
+    // Now you can write to the config file
+    data := []byte("app_name: myapp\nversion: 1.0\n")
+    if err := os.WriteFile(configPath, data, 0644); err != nil {
+        log.Fatal(err)
+    }
+    
+    fmt.Println("Config file created successfully")
+}
+```
+
+## Reading Files from Home Directory
+
+Read files from the user's home directory:
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    "os"
+    
+    "github.com/mitchellh/go-homedir"
+)
+
+func main() {
+    // Read a file from home directory
+    filePath, err := homedir.Expand("~/.bashrc")
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    content, err := os.ReadFile(filePath)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    fmt.Printf("Read %d bytes from %s\n", len(content), filePath)
+    // Output: Read 3214 bytes from /home/username/.bashrc
+}
+```
+
+## Checking if Files Exist in Home
+
+Check if a file or directory exists in the home directory:
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    "os"
+    
+    "github.com/mitchellh/go-homedir"
+)
+
+func main() {
+    // Check if .ssh directory exists
+    sshPath, err := homedir.Expand("~/.ssh")
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    if info, err := os.Stat(sshPath); err == nil {
+        if info.IsDir() {
+            fmt.Println(".ssh directory exists")
+        } else {
+            fmt.Println(".ssh exists but is not a directory")
+        }
+    } else if os.IsNotExist(err) {
+        fmt.Println(".ssh directory does not exist")
+    } else {
+        log.Fatal(err)
+    }
+}
+```
+
+## Working with Multiple Paths
+
+Expand multiple paths in one operation:
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    
+    "github.com/mitchellh/go-homedir"
+)
+
+func main() {
+    paths := []string{
+        "~/.config/app",
+        "~/Documents",
+        "~/.local/share",
+        "/etc/app", // absolute path, won't be expanded
+    }
+    
+    expanded := make([]string, 0, len(paths))
+    
+    for _, p := range paths {
+        fullPath, err := homedir.Expand(p)
+        if err != nil {
+            log.Fatal(err)
+        }
+        expanded = append(expanded, fullPath)
+    }
+    
+    fmt.Println("Expanded paths:")
+    for _, p := range expanded {
+        fmt.Println(" ", p)
+    }
+    // Output:
+    // Expanded paths:
+    //   /home/username/.config/app
+    //   /home/username/Documents
+    //   /home/username/.local/share
+    //   /etc/app
+}
+```
+
+## Error Handling
+
+Handle errors properly when expanding paths:
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    
+    "github.com/mitchellh/go-homedir"
+)
+
+func main() {
+    // This will fail: user-specific home dirs are not supported
+    path, err := homedir.Expand("~otheruser/file.txt")
+    if err != nil {
+        fmt.Println("Error:", err)
+        // Output: Error: cannot expand user-specific home dir
+        return
+    }
+    
+    fmt.Println("Path:", path)
+}
+```
+
+<Note>
+  The `Expand` function only expands `~` or `~/path`. It does not support user-specific expansions like `~username/path`.
+</Note>
+
+## Empty Path Handling
+
+Empty strings are handled gracefully:
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    
+    "github.com/mitchellh/go-homedir"
+)
+
+func main() {
+    // Empty paths are returned as-is
+    path, err := homedir.Expand("")
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    fmt.Printf("Empty path result: '%s'\n", path)
+    // Output: Empty path result: ''
+}
+```

@@ -1,0 +1,164 @@
+---
+title: 'Reset()'
+description: 'Clears the home directory cache'
+---
+
+## Function Signature
+
+```go
+func Reset()
+```
+
+## Description
+
+The `Reset()` function clears the internal cache, forcing the next call to `Dir()` to re-detect the home directory. This function generally never has to be called in production code, but is useful in specific scenarios like testing.
+
+## When to Use
+
+You should call `Reset()` when:
+
+- **Testing**: When you're modifying the home directory via environment variables (like `HOME`, `USERPROFILE`) in tests and need to re-detect the directory
+- **Dynamic environments**: When the home directory might change during program execution (rare)
+- **Cache invalidation**: After changing environment variables that affect home directory detection
+
+<Note>
+  In most production applications, you don't need to call `Reset()`. The cache improves performance and the home directory rarely changes during execution.
+</Note>
+
+## Parameters
+
+None.
+
+## Return Values
+
+None. This function does not return any values.
+
+## Behavior
+
+`Reset()` clears the cached home directory value by:
+1. Acquiring a write lock on the cache
+2. Setting the internal cache to an empty string
+3. Releasing the lock
+
+The next call to `Dir()` will perform full home directory detection, and the result will be cached again (unless `DisableCache` is `true`).
+
+## Usage Examples
+
+### Testing with Environment Variables
+
+```go
+import (
+    "os"
+    "testing"
+    "github.com/mitchellh/go-homedir"
+)
+
+func TestHomeDirectory(t *testing.T) {
+    // Get original home
+    original, _ := homedir.Dir()
+    
+    // Change HOME environment variable
+    os.Setenv("HOME", "/tmp/test-home")
+    
+    // Clear cache to pick up new value
+    homedir.Reset()
+    
+    // Now Dir() will re-detect using new HOME value
+    newHome, err := homedir.Dir()
+    if err != nil {
+        t.Fatal(err)
+    }
+    
+    if newHome != "/tmp/test-home" {
+        t.Errorf("Expected /tmp/test-home, got %s", newHome)
+    }
+    
+    // Cleanup: restore original
+    os.Setenv("HOME", original)
+    homedir.Reset()
+}
+```
+
+### Forcing Re-detection
+
+```go
+import "github.com/mitchellh/go-homedir"
+
+func main() {
+    // First call - detects and caches
+    dir1, _ := homedir.Dir()
+    fmt.Println("Cached:", dir1)
+    
+    // Change environment (for some reason)
+    os.Setenv("HOME", "/new/home")
+    
+    // Without Reset(), would return cached value
+    // With Reset(), forces re-detection
+    homedir.Reset()
+    
+    dir2, _ := homedir.Dir()
+    fmt.Println("Re-detected:", dir2)
+}
+```
+
+### Multiple Test Cases
+
+```go
+func TestMultipleHomeScenarios(t *testing.T) {
+    tests := []struct {
+        name     string
+        homeVar  string
+        expected string
+    }{
+        {"user1", "/home/user1", "/home/user1"},
+        {"user2", "/home/user2", "/home/user2"},
+        {"root", "/root", "/root"},
+    }
+    
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            os.Setenv("HOME", tt.homeVar)
+            homedir.Reset() // Clear cache for each test
+            
+            got, err := homedir.Dir()
+            if err != nil {
+                t.Fatal(err)
+            }
+            if got != tt.expected {
+                t.Errorf("got %s, want %s", got, tt.expected)
+            }
+        })
+    }
+}
+```
+
+## Relationship with DisableCache
+
+`Reset()` and `DisableCache` serve different purposes:
+
+- **`Reset()`**: Clears the cache once, forcing the next detection. The result is still cached for subsequent calls.
+- **`DisableCache = true`**: Disables caching entirely. Every call to `Dir()` will re-detect the home directory.
+
+```go
+// Using Reset() - cache is cleared once
+dir1, _ := homedir.Dir()  // Detects and caches
+dir2, _ := homedir.Dir()  // Uses cache
+homedir.Reset()           // Clears cache
+dir3, _ := homedir.Dir()  // Re-detects and caches
+dir4, _ := homedir.Dir()  // Uses cache again
+
+// Using DisableCache - never caches
+homedir.DisableCache = true
+dir1, _ := homedir.Dir()  // Detects (no cache)
+dir2, _ := homedir.Dir()  // Detects again (no cache)
+dir3, _ := homedir.Dir()  // Detects again (no cache)
+```
+
+## Thread Safety
+
+`Reset()` is thread-safe. It uses a mutex lock to ensure safe concurrent access to the cache.
+
+## Related
+
+- [Dir()](/api/dir) - The function whose cache is cleared by `Reset()`
+- [DisableCache](/api/configuration) - Alternative approach to prevent caching

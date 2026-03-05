@@ -1,0 +1,89 @@
+---
+title: Installation
+description: Install go-homedir in your Go project
+---
+
+## Prerequisites
+
+Before installing `go-homedir`, ensure you have:
+
+- Go installed (any version with module support)
+- A Go project initialized with `go mod init`
+
+## Installation Steps
+
+<Steps>
+  <Step title="Install the package">
+    Use `go get` to install the latest version of `go-homedir`:
+
+    ```bash
+    go get github.com/mitchellh/go-homedir
+    ```
+
+    This will download the library and add it to your `go.mod` file.
+  </Step>
+
+  <Step title="Import the package">
+    Import `go-homedir` in your Go code:
+
+    ```go
+    import "github.com/mitchellh/go-homedir"
+    ```
+
+    You can now use the library's functions in your code.
+  </Step>
+
+  <Step title="Verify installation">
+    Create a simple test file to verify the installation:
+
+    ```go main.go
+    package main
+
+    import (
+        "fmt"
+        "log"
+        "github.com/mitchellh/go-homedir"
+    )
+
+    func main() {
+        dir, err := homedir.Dir()
+        if err != nil {
+            log.Fatal(err)
+        }
+        fmt.Println("Home directory:", dir)
+    }
+    ```
+
+    Run the test:
+
+    ```bash
+    go run main.go
+    ```
+
+    You should see your home directory path printed to the console.
+  </Step>
+</Steps>
+
+## Alternative Installation
+
+If you prefer to specify an exact version, you can use:
+
+```bash
+go get github.com/mitchellh/go-homedir@latest
+```
+
+Or pin to a specific version:
+
+```bash
+go get github.com/mitchellh/go-homedir@v1.1.0
+```
+
+<Note>
+  The library has no external dependencies, making it lightweight and fast to install.
+</Note>
+
+## Next Steps
+
+<Card title="Quickstart" icon="rocket" href="/quickstart">
+  Learn how to use go-homedir with a complete working example
+</Card>

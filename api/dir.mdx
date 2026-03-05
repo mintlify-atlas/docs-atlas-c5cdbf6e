@@ -1,0 +1,103 @@
+---
+title: 'Dir()'
+description: 'Returns the home directory for the executing user'
+---
+
+## Function Signature
+
+```go
+func Dir() (string, error)
+```
+
+## Description
+
+The `Dir()` function returns the home directory for the executing user using OS-specific methods. It automatically caches the result for performance, unless caching is disabled via the `DisableCache` variable.
+
+## Return Values
+
+<ResponseField name="string" type="string">
+  The absolute path to the user's home directory
+</ResponseField>
+
+<ResponseField name="error" type="error">
+  An error if the home directory cannot be detected. Returns `nil` on success.
+</ResponseField>
+
+## Behavior
+
+### Caching
+
+By default, `Dir()` caches the home directory after the first successful call. Subsequent calls return the cached value without re-detection. This improves performance for applications that call `Dir()` frequently.
+
+To disable caching, set `DisableCache = true` before calling `Dir()`.
+
+### Platform-Specific Detection
+
+**Windows:**
+- Checks the `HOME` environment variable first
+- Falls back to `USERPROFILE` environment variable
+- Finally tries combining `HOMEDRIVE` and `HOMEPATH` environment variables
+- Returns an error if all methods fail
+
+**Unix/Linux/macOS:**
+- Checks the `HOME` environment variable first (or `home` on Plan 9)
+- On macOS: Uses `dscl` command to read the user's NFSHomeDirectory
+- On Linux: Uses `getent passwd` to read from the password database
+- Falls back to executing `cd && pwd` in a shell
+- Returns an error if all methods fail
+
+## Usage Examples
+
+### Basic Usage
+
+```go
+import "github.com/mitchellh/go-homedir"
+
+func main() {
+    dir, err := homedir.Dir()
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println("Home directory:", dir)
+    // Output (example): /home/username
+}
+```
+
+### With Cache Disabled
+
+```go
+import "github.com/mitchellh/go-homedir"
+
+func main() {
+    // Disable caching globally
+    homedir.DisableCache = true
+    
+    dir, err := homedir.Dir()
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println("Home directory:", dir)
+}
+```
+
+## Error Handling
+
+The function returns an error when:
+- All environment variables are empty or blank
+- OS-specific commands fail to execute
+- The detected home directory is blank
+
+```go
+dir, err := homedir.Dir()
+if err != nil {
+    // Handle the case where home directory cannot be detected
+    log.Fatalf("Failed to detect home directory: %v", err)
+}
+// Use dir safely
+```
+
+## Related
+
+- [Expand()](/api/expand) - Uses `Dir()` internally to expand `~` in paths
+- [Reset()](/api/reset) - Clears the home directory cache
+- [DisableCache](/api/configuration) - Configuration variable to disable caching

@@ -1,0 +1,197 @@
+---
+title: Platform Behavior
+description: Understanding how go-homedir works across different operating systems
+---
+
+The `go-homedir` library detects the home directory using OS-specific methods. This guide explains how it works on different platforms.
+
+## How It Works
+
+The `Dir()` function uses `runtime.GOOS` to determine the operating system and calls the appropriate platform-specific function:
+
+```go homedir.go
+var result string
+var err error
+if runtime.GOOS == "windows" {
+    result, err = dirWindows()
+} else {
+    // Unix-like system, so just assume Unix
+    result, err = dirUnix()
+}
+```
+
+## Platform-Specific Behavior
+
+<Tabs>
+  <Tab title="Windows">
+    On Windows, the library checks environment variables in this priority order:
+
+    1. **HOME** - Checked first for compatibility with Unix-like tools
+    2. **USERPROFILE** - The standard Windows environment variable
+    3. **HOMEDRIVE + HOMEPATH** - Fallback combination
+
+    ### Implementation
+
+    ```go homedir.go:148-167
+    func dirWindows() (string, error) {
+        // First prefer the HOME environmental variable
+        if home := os.Getenv("HOME"); home != "" {
+            return home, nil
+        }
+
+        // Prefer standard environment variable USERPROFILE
+        if home := os.Getenv("USERPROFILE"); home != "" {
+            return home, nil
+        }
+
+        drive := os.Getenv("HOMEDRIVE")
+        path := os.Getenv("HOMEPATH")
+        home := drive + path
+        if drive == "" || path == "" {
+            return "", errors.New("HOMEDRIVE, HOMEPATH, or USERPROFILE are blank")
+        }
+
+        return home, nil
+    }
+    ```
+
+    ### Error Conditions
+
+    An error is returned if all three methods fail:
+    - `HOME` is empty or not set
+    - `USERPROFILE` is empty or not set
+    - Either `HOMEDRIVE` or `HOMEPATH` is empty or not set
+
+    <Warning>
+      If all environment variables are blank, you'll get the error:
+      `"HOMEDRIVE, HOMEPATH, or USERPROFILE are blank"`
+    </Warning>
+  </Tab>
+
+  <Tab title="macOS">
+    On macOS, the library uses a multi-step fallback approach:
+
+    1. **HOME environment variable** - Checked first
+    2. **dscl command** - Queries Directory Services
+    3. **Shell command** - Falls back to `cd && pwd`
+
+    ### Implementation
+
+    The macOS-specific logic uses the `dscl` command to read from Directory Services:
+
+    ```go homedir.go:104-112
+    if runtime.GOOS == "darwin" {
+        cmd := exec.Command("sh", "-c", `dscl -q . -read /Users/"$(whoami)" NFSHomeDirectory | sed 's/^[^ ]*: //'`)
+        cmd.Stdout = &stdout
+        if err := cmd.Run(); err == nil {
+            result := strings.TrimSpace(stdout.String())
+            if result != "" {
+                return result, nil
+            }
+        }
+    }
+    ```
+
+    <Tip>
+      The `dscl` command is macOS-specific and provides reliable home directory detection even when environment variables are not set.
+    </Tip>
+  </Tab>
+
+  <Tab title="Linux">
+    On Linux and other Unix-like systems, the library uses:
+
+    1. **HOME environment variable** - Checked first
+    2. **getent passwd** - Queries the password database
+    3. **Shell command** - Falls back to `cd && pwd`
+
+    ### Implementation
+
+    The `getent` command retrieves user information from the system's user database:
+
+    ```go homedir.go:114-129
+    cmd := exec.Command("getent", "passwd", strconv.Itoa(os.Getuid()))
+    cmd.Stdout = &stdout
+    if err := cmd.Run(); err != nil {
+        // If the error is ErrNotFound, we ignore it. Otherwise, return it.
+        if err != exec.ErrNotFound {
+            return "", err
+        }
+    } else {
+        if passwd := strings.TrimSpace(stdout.String()); passwd != "" {
+            // username:password:uid:gid:gecos:home:shell
+            passwdParts := strings.SplitN(passwd, ":", 7)
+            if len(passwdParts) > 5 {
+                return passwdParts[5], nil
+            }
+        }
+    }
+    ```
+
+    The output from `getent passwd` follows the standard format:
+    ```
+    username:password:uid:gid:gecos:home:shell
+    ```
+
+    The home directory is the 6th field (index 5).
+
+    <Note>
+      The `getent` command may not be available on all systems. If it returns `ErrNotFound`, the library silently continues to the next fallback method.
+    </Note>
+  </Tab>
+
+  <Tab title="Plan 9">
+    Plan 9 has unique behavior for environment variables:
+
+    ```go homedir.go:90-94
+    homeEnv := "HOME"
+    if runtime.GOOS == "plan9" {
+        // On plan9, env vars are lowercase.
+        homeEnv = "home"
+    }
+    ```
+
+    On Plan 9, the library checks the lowercase `home` environment variable instead of `HOME`.
+
+    <Note>
+      Plan 9 uses lowercase environment variable names by convention. This is the only platform-specific difference in environment variable naming.
+    </Note>
+  </Tab>
+</Tabs>
+
+## Final Fallback
+
+If all platform-specific methods fail, the library falls back to a shell command that works on all Unix-like systems:
+
+```go homedir.go:132-145
+// If all else fails, try the shell
+stdout.Reset()
+cmd := exec.Command("sh", "-c", "cd && pwd")
+cmd.Stdout = &stdout
+if err := cmd.Run(); err != nil {
+    return "", err
+}
+
+result := strings.TrimSpace(stdout.String())
+if result == "" {
+    return "", errors.New("blank output when reading home directory")
+}
+
+return result, nil
+```
+
+This command changes to the home directory and prints the working directory, which is guaranteed to be the home directory.
+
+<Warning>
+  If even the shell fallback returns blank output, you'll get the error:
+  `"blank output when reading home directory"`
+</Warning>
+
+## Why No CGO?
+
+The library intentionally avoids CGO to:
+- Enable cross-compilation without a C compiler
+- Reduce binary size and complexity
+- Improve build times
+- Avoid CGO-related runtime issues
+
+Instead, it uses Go's standard library and shell commands, which are available on all target platforms.

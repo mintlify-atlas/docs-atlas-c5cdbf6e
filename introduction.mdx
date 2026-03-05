@@ -1,0 +1,75 @@
+---
+title: Introduction
+description: Go library for detecting and expanding the user's home directory without cgo
+---
+
+## Overview
+
+`go-homedir` is a lightweight Go library that detects the user's home directory without requiring cgo. This makes it ideal for cross-compilation environments where cgo dependencies can cause issues.
+
+## The Problem with os/user
+
+The built-in `os/user` package in Go requires cgo on Darwin (macOS) systems. This dependency prevents Go code from being cross-compiled to macOS targets. However, most use cases for `os/user` are simply to retrieve the home directory for the current user - something that can be done without cgo.
+
+`go-homedir` solves this problem by providing a pure Go implementation that works across all platforms.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="No cgo Required" icon="code">
+    Pure Go implementation enables seamless cross-compilation to any platform
+  </Card>
+  <Card title="Cross-Platform" icon="globe">
+    Supports Unix, Linux, macOS, Windows, and Plan 9 systems
+  </Card>
+  <Card title="Built-in Caching" icon="bolt">
+    Automatically caches the home directory for improved performance
+  </Card>
+  <Card title="Path Expansion" icon="folder">
+    Expands `~` in paths to the full home directory
+  </Card>
+</CardGroup>
+
+## How It Works
+
+The library uses OS-specific methods to detect the home directory:
+
+- **Unix/Linux**: Checks `$HOME` environment variable, falls back to `getent passwd`, then shell commands
+- **macOS**: Checks `$HOME` environment variable, falls back to `dscl` command
+- **Windows**: Checks `%USERPROFILE%`, `%HOME%`, or combines `%HOMEDRIVE%` and `%HOMEPATH%`
+- **Plan 9**: Uses the `$home` environment variable
+
+## Quick Preview
+
+Here's a simple example of using `go-homedir`:
+
+```go
+import "github.com/mitchellh/go-homedir"
+
+// Get the home directory
+dir, err := homedir.Dir()
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println("Home directory:", dir)
+// Output: Home directory: /home/username
+
+// Expand a path with ~
+path, err := homedir.Expand("~/.config/app")
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println("Expanded path:", path)
+// Output: Expanded path: /home/username/.config/app
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install go-homedir in your Go project
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build your first application with go-homedir
+  </Card>
+</CardGroup>

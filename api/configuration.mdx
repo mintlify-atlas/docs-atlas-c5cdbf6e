@@ -1,0 +1,192 @@
+---
+title: 'DisableCache'
+description: 'Configuration variable to control home directory caching behavior'
+---
+
+## Variable Declaration
+
+```go
+var DisableCache bool
+```
+
+## Description
+
+The `DisableCache` variable controls whether the home directory is cached after detection. By default, caching is **enabled** (`DisableCache = false`), which improves performance for applications that frequently call `Dir()`.
+
+When set to `true`, every call to `Dir()` will re-detect the home directory using OS-specific methods, which is slower but ensures you always get the current value.
+
+## Type
+
+<ParamField path="DisableCache" type="bool" default="false">
+  When `false` (default), the home directory is cached after first detection. When `true`, caching is disabled and the home directory is re-detected on every call to `Dir()`.
+</ParamField>
+
+## When to Use
+
+Set `DisableCache = true` when:
+
+- **Dynamic environments**: The home directory might change during program execution (very rare)
+- **Testing scenarios**: You need to test different home directory configurations without calling `Reset()` between tests
+- **Fresh detection required**: You must ensure the most up-to-date value every time
+
+<Warning>
+  Disabling the cache impacts performance. Every call to `Dir()` will execute OS-specific detection logic, which may involve running external commands or reading from system databases.
+</Warning>
+
+## Default Behavior (Caching Enabled)
+
+By default, `DisableCache` is `false`, meaning:
+
+1. First call to `Dir()` detects the home directory using OS-specific methods
+2. The result is stored in an internal cache
+3. Subsequent calls to `Dir()` return the cached value immediately
+4. The cache can be cleared with `Reset()`
+
+This is the recommended configuration for most applications.
+
+## Usage Examples
+
+### Disable Caching Globally
+
+```go
+import "github.com/mitchellh/go-homedir"
+
+func main() {
+    // Disable caching before any calls to Dir()
+    homedir.DisableCache = true
+    
+    // Every call now re-detects
+    dir1, err := homedir.Dir()
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    dir2, err := homedir.Dir() // Re-detects again
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    fmt.Println(dir1, dir2)
+}
+```
+
+### Testing Without Cache
+
+```go
+import (
+    "os"
+    "testing"
+    "github.com/mitchellh/go-homedir"
+)
+
+func TestWithoutCache(t *testing.T) {
+    // Disable cache for this test
+    homedir.DisableCache = true
+    defer func() {
+        // Re-enable for other tests
+        homedir.DisableCache = false
+    }()
+    
+    // Test different HOME values
+    os.Setenv("HOME", "/tmp/home1")
+    dir1, _ := homedir.Dir()
+    
+    os.Setenv("HOME", "/tmp/home2")
+    dir2, _ := homedir.Dir() // Automatically picks up new value
+    
+    if dir1 == dir2 {
+        t.Error("Expected different directories")
+    }
+}
+```
+
+### Temporarily Enable Caching
+
+```go
+func performanceTest() {
+    // Save current state
+    originalState := homedir.DisableCache
+    defer func() {
+        homedir.DisableCache = originalState
+    }()
+    
+    // Enable caching for performance
+    homedir.DisableCache = false
+    
+    // Perform many operations
+    for i := 0; i < 1000; i++ {
+        dir, _ := homedir.Dir() // Uses cache after first call
+        processPath(dir)
+    }
+}
+```
+
+### Comparing Performance
+
+```go
+import (
+    "time"
+    "github.com/mitchellh/go-homedir"
+)
+
+func compareCachePerformance() {
+    // With cache
+    homedir.DisableCache = false
+    homedir.Reset() // Clear any existing cache
+    
+    start := time.Now()
+    for i := 0; i < 1000; i++ {
+        homedir.Dir()
+    }
+    cached := time.Since(start)
+    
+    // Without cache
+    homedir.DisableCache = true
+    
+    start = time.Now()
+    for i := 0; i < 1000; i++ {
+        homedir.Dir()
+    }
+    uncached := time.Since(start)
+    
+    fmt.Printf("Cached: %v\n", cached)
+    fmt.Printf("Uncached: %v\n", uncached)
+    fmt.Printf("Cache speedup: %.2fx\n", float64(uncached)/float64(cached))
+}
+```
+
+## Implementation Details
+
+When `DisableCache` is `false` (default):
+- `Dir()` checks if a cached value exists before detection
+- If cached value exists, it's returned immediately
+- If no cache exists, detection runs and the result is cached
+
+When `DisableCache` is `true`:
+- `Dir()` skips the cache check entirely
+- Detection always runs using OS-specific methods
+- Results are still stored in the cache but never read
+
+## Thread Safety
+
+Access to the cache is protected by a read-write mutex (`sync.RWMutex`), making it safe to:
+- Set `DisableCache` from one goroutine
+- Call `Dir()` from multiple goroutines concurrently
+
+However, changing `DisableCache` while other goroutines are calling `Dir()` may result in inconsistent behavior. It's best to set `DisableCache` once at program startup.
+
+## Comparison with Reset()
+
+`DisableCache` and `Reset()` serve different purposes:
+
+| Feature | `DisableCache = true` | `Reset()` |
+|---------|----------------------|------------|
+| Effect | Disables caching permanently | Clears cache once |
+| Next call | Always re-detects | Re-detects once, then caches |
+| Use case | Testing, dynamic environments | One-time cache invalidation |
+| Performance | Slower (always detects) | Fast after reset |
+
+## Related
+
+- [Dir()](/api/dir) - The function affected by this configuration
+- [Reset()](/api/reset) - Alternative way to invalidate the cache

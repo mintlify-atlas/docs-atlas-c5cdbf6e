@@ -1,0 +1,309 @@
+---
+title: Error Handling
+description: Understanding and handling errors in go-homedir
+---
+
+The `go-homedir` library can encounter various error conditions when detecting or expanding home directories. This guide covers all possible errors and how to handle them properly.
+
+## Error Sources
+
+Errors can come from two main functions:
+- `Dir()` - Errors detecting the home directory
+- `Expand()` - Errors expanding paths with `~`
+
+## Errors from Dir()
+
+The `Dir()` function can return several errors depending on the platform and system state.
+
+### Windows Errors
+
+On Windows, if all environment variables are empty:
+
+```go
+dir, err := homedir.Dir()
+if err != nil {
+    // Error: "HOMEDRIVE, HOMEPATH, or USERPROFILE are blank"
+    fmt.Fprintf(os.Stderr, "Cannot detect home directory: %v\n", err)
+    os.Exit(1)
+}
+```
+
+**Source:** `homedir.go:164`
+
+```go
+if drive == "" || path == "" {
+    return "", errors.New("HOMEDRIVE, HOMEPATH, or USERPROFILE are blank")
+}
+```
+
+This occurs when:
+- `HOME` is not set or empty
+- `USERPROFILE` is not set or empty
+- Either `HOMEDRIVE` or `HOMEPATH` is not set or empty
+
+<Warning>
+  On Windows, this error indicates a severely misconfigured system. The `USERPROFILE` variable should always be set by the operating system.
+</Warning>
+
+### Unix/Linux Errors
+
+On Unix-like systems, errors can come from command execution:
+
+#### getent Command Error
+
+```go homedir.go:116-120
+if err := cmd.Run(); err != nil {
+    // If the error is ErrNotFound, we ignore it. Otherwise, return it.
+    if err != exec.ErrNotFound {
+        return "", err
+    }
+}
+```
+
+If `getent` fails with an error other than `ErrNotFound`, the error is returned. This could happen if:
+- Permission issues prevent reading the password database
+- The system is in an unusual state
+
+#### Shell Command Error
+
+```go homedir.go:136-138
+if err := cmd.Run(); err != nil {
+    return "", err
+}
+```
+
+The final fallback command `sh -c "cd && pwd"` can fail if:
+- The shell is not available
+- Permission issues prevent executing commands
+- The home directory doesn't exist or isn't accessible
+
+#### Blank Output Error
+
+```go homedir.go:140-143
+result := strings.TrimSpace(stdout.String())
+if result == "" {
+    return "", errors.New("blank output when reading home directory")
+}
+```
+
+This error occurs when the shell command succeeds but returns no output.
+
+### Proper Error Handling for Dir()
+
+```go
+import (
+    "fmt"
+    "os"
+    "github.com/mitchellh/go-homedir"
+)
+
+func main() {
+    dir, err := homedir.Dir()
+    if err != nil {
+        fmt.Fprintf(os.Stderr, "Failed to detect home directory: %v\n", err)
+        fmt.Fprintf(os.Stderr, "Please ensure your environment is properly configured.\n")
+        os.Exit(1)
+    }
+    
+    fmt.Printf("Home directory: %s\n", dir)
+}
+```
+
+<Tip>
+  Always check the error from `Dir()`. While rare, home directory detection can fail on misconfigured or restricted systems.
+</Tip>
+
+## Errors from Expand()
+
+The `Expand()` function has its own specific error conditions.
+
+### User-Specific Home Directory Error
+
+The most common error from `Expand()` occurs when you try to expand a user-specific home directory:
+
+```go homedir.go:67-69
+if len(path) > 1 && path[1] != '/' && path[1] != '\\' {
+    return "", errors.New("cannot expand user-specific home dir")
+}
+```
+
+This happens when the path starts with `~` followed by a username:
+
+```go
+// These will fail with "cannot expand user-specific home dir"
+path, err := homedir.Expand("~john/documents")  // Error!
+path, err := homedir.Expand("~root/.bashrc")    // Error!
+```
+
+**Why?** The library only expands `~` for the current user. Supporting other users would require:
+- Looking up user information (requires CGO or complex workarounds)
+- Different behavior across platforms
+- Potential security implications
+
+<Warning>
+  The library only supports expanding `~` for the current user. Use absolute paths or other methods for user-specific paths.
+</Warning>
+
+### Valid Patterns
+
+These patterns work correctly:
+
+```go
+// Valid - expand current user's home
+path, err := homedir.Expand("~/documents")     // ✓
+path, err := homedir.Expand("~/.bashrc")       // ✓
+path, err := homedir.Expand("~")               // ✓
+
+// Valid - not a home path, returned as-is
+path, err := homedir.Expand("/absolute/path")  // ✓
+path, err := homedir.Expand("relative/path")   // ✓
+path, err := homedir.Expand("")                // ✓
+```
+
+### Propagated Errors from Dir()
+
+`Expand()` calls `Dir()` internally, so it can return any error from `Dir()`:
+
+```go homedir.go:71-74
+dir, err := Dir()
+if err != nil {
+    return "", err
+}
+```
+
+Example:
+
+```go
+path, err := homedir.Expand("~/.config/app")
+if err != nil {
+    // Could be "cannot expand user-specific home dir"
+    // Or any error from Dir() like "HOMEDRIVE, HOMEPATH, or USERPROFILE are blank"
+    fmt.Fprintf(os.Stderr, "Expansion failed: %v\n", err)
+    os.Exit(1)
+}
+```
+
+### Proper Error Handling for Expand()
+
+```go
+import (
+    "fmt"
+    "os"
+    "github.com/mitchellh/go-homedir"
+)
+
+func expandConfigPath(path string) string {
+    expanded, err := homedir.Expand(path)
+    if err != nil {
+        // Check for specific error
+        if err.Error() == "cannot expand user-specific home dir" {
+            fmt.Fprintf(os.Stderr, "Error: Cannot expand user-specific paths like ~user/path\n")
+            fmt.Fprintf(os.Stderr, "Use ~/ for your home directory or an absolute path\n")
+        } else {
+            fmt.Fprintf(os.Stderr, "Failed to expand path: %v\n", err)
+        }
+        os.Exit(1)
+    }
+    return expanded
+}
+
+func main() {
+    configPath := expandConfigPath("~/.config/myapp/config.json")
+    fmt.Printf("Config path: %s\n", configPath)
+}
+```
+
+## Best Practices
+
+### 1. Always Check Errors
+
+```go
+// Bad - ignoring errors
+dir, _ := homedir.Dir()
+configPath := filepath.Join(dir, ".config", "app")
+
+// Good - handling errors
+dir, err := homedir.Dir()
+if err != nil {
+    return fmt.Errorf("failed to find home directory: %w", err)
+}
+configPath := filepath.Join(dir, ".config", "app")
+```
+
+### 2. Provide Helpful Error Messages
+
+```go
+path, err := homedir.Expand(configPath)
+if err != nil {
+    return fmt.Errorf("failed to expand config path %q: %w", configPath, err)
+}
+```
+
+### 3. Validate User Input
+
+```go
+func validatePath(userPath string) error {
+    // Check for user-specific home paths before calling Expand
+    if len(userPath) > 1 && userPath[0] == '~' && userPath[1] != '/' && userPath[1] != '\\' {
+        return fmt.Errorf("user-specific paths like %q are not supported, use ~/ instead", userPath)
+    }
+    
+    expanded, err := homedir.Expand(userPath)
+    if err != nil {
+        return err
+    }
+    
+    // Continue with expanded path...
+    return nil
+}
+```
+
+### 4. Graceful Degradation
+
+```go
+func getConfigDir() string {
+    // Try to use home directory
+    home, err := homedir.Dir()
+    if err != nil {
+        // Fall back to current directory
+        fmt.Fprintf(os.Stderr, "Warning: Could not detect home directory: %v\n", err)
+        fmt.Fprintf(os.Stderr, "Using current directory for config\n")
+        return "."
+    }
+    
+    return filepath.Join(home, ".config", "myapp")
+}
+```
+
+### 5. Testing Error Conditions
+
+```go
+func TestExpandError(t *testing.T) {
+    // Test user-specific path
+    _, err := homedir.Expand("~user/path")
+    if err == nil {
+        t.Error("Expected error for user-specific path")
+    }
+    if err.Error() != "cannot expand user-specific home dir" {
+        t.Errorf("Unexpected error: %v", err)
+    }
+}
+```
+
+<Note>
+  In tests, use `DisableCache = true` to ensure fresh detection and predictable error conditions. Don't forget to reset it after the test.
+</Note>
+
+## Error Scenarios Summary
+
+| Function | Error Condition | Error Message |
+|----------|----------------|---------------|
+| `Dir()` (Windows) | All env vars blank | `"HOMEDRIVE, HOMEPATH, or USERPROFILE are blank"` |
+| `Dir()` (Unix) | Command execution fails | Varies (from `exec.Command`) |
+| `Dir()` (Unix) | Blank output | `"blank output when reading home directory"` |
+| `Expand()` | User-specific path | `"cannot expand user-specific home dir"` |
+| `Expand()` | Dir() fails | Propagated error from `Dir()` |
+
+<Tip>
+  Errors from `Dir()` and `Expand()` are rare in normal circumstances. They typically indicate system misconfiguration or permission issues. Always log these errors to help diagnose system problems.
+</Tip>

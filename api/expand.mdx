@@ -1,0 +1,146 @@
+---
+title: 'Expand()'
+description: 'Expands the tilde (~) in paths to the full home directory path'
+---
+
+## Function Signature
+
+```go
+func Expand(path string) (string, error)
+```
+
+## Description
+
+The `Expand()` function expands the path to include the home directory if the path is prefixed with `~`. If the path doesn't start with `~`, it returns the path as-is.
+
+## Parameters
+
+<ParamField path="path" type="string" required>
+  The file path to expand. If it starts with `~`, it will be expanded to the full home directory path.
+</ParamField>
+
+## Return Values
+
+<ResponseField name="string" type="string">
+  The expanded path with `~` replaced by the home directory, or the original path if no expansion was needed
+</ResponseField>
+
+<ResponseField name="error" type="error">
+  An error if:
+  - The path attempts to expand a user-specific home directory (e.g., `~user/path`)
+  - The home directory cannot be detected (from `Dir()`)
+  
+  Returns `nil` on success.
+</ResponseField>
+
+## Behavior
+
+### Expansion Rules
+
+1. **Empty path**: Returns the path as-is (empty string)
+2. **No tilde prefix**: Returns the path unchanged
+3. **Tilde only (`~`)**: Returns the home directory
+4. **Tilde with separator (`~/` or `~\`)**: Replaces `~` with the home directory and joins the remaining path
+5. **User-specific (`~user/`)**: Returns an error (not supported)
+
+### Limitations
+
+<Warning>
+  `Expand()` **cannot** expand user-specific home directories. Paths like `~otheruser/documents` will return an error: `"cannot expand user-specific home dir"`.
+</Warning>
+
+This is intentional to keep the library simple and avoid platform-specific user lookup logic.
+
+## Usage Examples
+
+### Basic Path Expansion
+
+```go
+import "github.com/mitchellh/go-homedir"
+
+func main() {
+    path := "~/documents/file.txt"
+    expanded, err := homedir.Expand(path)
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(expanded)
+    // Output (example): /home/username/documents/file.txt
+}
+```
+
+### Paths Without Tilde
+
+```go
+path := "/absolute/path/to/file"
+expanded, err := homedir.Expand(path)
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println(expanded)
+// Output: /absolute/path/to/file (unchanged)
+```
+
+### Just the Tilde
+
+```go
+path := "~"
+expanded, err := homedir.Expand(path)
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println(expanded)
+// Output (example): /home/username
+```
+
+### Windows Paths
+
+```go
+// Works on Windows too
+path := "~\\Documents\\file.txt"
+expanded, err := homedir.Expand(path)
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println(expanded)
+// Output (example): C:\Users\username\Documents\file.txt
+```
+
+## Error Handling
+
+### User-Specific Home Directory Error
+
+```go
+path := "~otheruser/documents"
+expanded, err := homedir.Expand(path)
+if err != nil {
+    // Error: "cannot expand user-specific home dir"
+    fmt.Println("Cannot expand:", err)
+    return
+}
+```
+
+### Home Directory Detection Error
+
+```go
+path := "~/config"
+expanded, err := homedir.Expand(path)
+if err != nil {
+    // Error from Dir() if home directory cannot be detected
+    log.Fatalf("Failed to expand path: %v", err)
+}
+fmt.Println(expanded)
+```
+
+## Implementation Details
+
+Internally, `Expand()` uses:
+1. `Dir()` to get the home directory
+2. `filepath.Join()` to properly combine the home directory with the remaining path segments
+
+This ensures cross-platform compatibility with proper path separators.
+
+## Related
+
+- [Dir()](/api/dir) - Used internally to get the home directory
+- [Reset()](/api/reset) - Clear the home directory cache if needed
